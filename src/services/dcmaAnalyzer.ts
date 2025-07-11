@@ -324,19 +324,40 @@ export class DCMAAnalyzer {
       };
     }
 
-    const completedTasks = this.data.filter(task => !this.isIncomplete(task)).length;
-    const plannedTasks = this.baselineData.filter(task => {
-      const end = new Date(task.target_end_date);
-      return end <= new Date();
-    }).length;
+    // Get current date for comparison
+    const currentDate = new Date();
+    
+    // Find tasks that should be completed by now according to baseline
+    const plannedCompletedTasks = this.baselineData.filter(task => {
+      const endDate = new Date(task.target_end_date);
+      return endDate <= currentDate;
+    });
+    
+    // Find tasks that are actually completed in current schedule
+    const actuallyCompletedTasks = this.data.filter(task => !this.isIncomplete(task));
+    
+    // Create maps for easier lookup
+    const plannedCompletedTaskCodes = new Set(plannedCompletedTasks.map(task => task.task_code));
+    const actuallyCompletedTaskCodes = new Set(actuallyCompletedTasks.map(task => task.task_code));
+    
+    // Count tasks that were planned to be completed and are actually completed
+    let tasksCompletedAsPlanned = 0;
+    plannedCompletedTaskCodes.forEach(taskCode => {
+      if (actuallyCompletedTaskCodes.has(taskCode)) {
+        tasksCompletedAsPlanned++;
+      }
+    });
+    
+    const totalPlannedCompleted = plannedCompletedTasks.length;
 
-    const bei = plannedTasks > 0 ? completedTasks / plannedTasks : 0;
+    // Calculate BEI: (Tasks completed as planned) / (Tasks planned to be completed)
+    const bei = totalPlannedCompleted > 0 ? tasksCompletedAsPlanned / totalPlannedCompleted : 1;
     
     return {
       value: bei.toFixed(2),
       threshold: '0.95',
       status: bei >= 0.95 ? 'pass' : bei >= 0.85 ? 'warning' : 'fail',
-      description: 'Baseline Execution Index (BEI)'
+      description: `Baseline Execution Index (BEI) - ${tasksCompletedAsPlanned} of ${totalPlannedCompleted} planned tasks completed`
     };
   }
 
