@@ -302,15 +302,28 @@ export class DCMAAnalyzer {
       };
     }
 
-    const completedTasks = this.data.filter(task => !this.isIncomplete(task)).length;
-    const totalTasks = this.data.length;
-    const percentage = (completedTasks / totalTasks) * 100;
+    // Calculate percentage of baseline tasks that are completed in current schedule
+    const baselineTaskCodes = new Set(this.baselineData.map(task => task.task_code));
+    const currentCompletedTaskCodes = new Set(
+      this.data.filter(task => !this.isIncomplete(task)).map(task => task.task_code)
+    );
+    
+    // Count how many baseline tasks are completed in current schedule
+    let baselineTasksCompleted = 0;
+    baselineTaskCodes.forEach(taskCode => {
+      if (currentCompletedTaskCodes.has(taskCode)) {
+        baselineTasksCompleted++;
+      }
+    });
+    
+    const totalBaselineTasks = baselineTaskCodes.size;
+    const percentage = totalBaselineTasks > 0 ? (baselineTasksCompleted / totalBaselineTasks) * 100 : 0;
 
     return {
       value: `${percentage.toFixed(1)}%`,
       threshold: 'Project dependent',
-      status: 'info',
-      description: 'Percentage of tasks completed against baseline'
+      status: percentage >= 90 ? 'pass' : percentage >= 70 ? 'warning' : 'fail',
+      description: `${baselineTasksCompleted} of ${totalBaselineTasks} baseline tasks completed in current schedule`
     };
   }
 
@@ -324,40 +337,37 @@ export class DCMAAnalyzer {
       };
     }
 
-    // Get current date for comparison
-    const currentDate = new Date();
+    // For BEI, we compare the completion status between baseline and current
+    // BEI = (Tasks with same completion status) / (Total tasks)
     
-    // Find tasks that should be completed by now according to baseline
-    const plannedCompletedTasks = this.baselineData.filter(task => {
-      const endDate = new Date(task.target_end_date);
-      return endDate <= currentDate;
-    });
+    const baselineTaskMap = new Map(this.baselineData.map(task => [task.task_code, task]));
+    const currentTaskMap = new Map(this.data.map(task => [task.task_code, task]));
     
-    // Find tasks that are actually completed in current schedule
-    const actuallyCompletedTasks = this.data.filter(task => !this.isIncomplete(task));
+    let tasksWithMatchingStatus = 0;
+    let totalComparableTasks = 0;
     
-    // Create maps for easier lookup
-    const plannedCompletedTaskCodes = new Set(plannedCompletedTasks.map(task => task.task_code));
-    const actuallyCompletedTaskCodes = new Set(actuallyCompletedTasks.map(task => task.task_code));
-    
-    // Count tasks that were planned to be completed and are actually completed
-    let tasksCompletedAsPlanned = 0;
-    plannedCompletedTaskCodes.forEach(taskCode => {
-      if (actuallyCompletedTaskCodes.has(taskCode)) {
-        tasksCompletedAsPlanned++;
+    // Check tasks that exist in both schedules
+    baselineTaskMap.forEach((baselineTask, taskCode) => {
+      const currentTask = currentTaskMap.get(taskCode);
+      if (currentTask) {
+        totalComparableTasks++;
+        const baselineCompleted = !this.isIncomplete(baselineTask);
+        const currentCompleted = !this.isIncomplete(currentTask);
+        
+        if (baselineCompleted === currentCompleted) {
+          tasksWithMatchingStatus++;
+        }
       }
     });
-    
-    const totalPlannedCompleted = plannedCompletedTasks.length;
 
-    // Calculate BEI: (Tasks completed as planned) / (Tasks planned to be completed)
-    const bei = totalPlannedCompleted > 0 ? tasksCompletedAsPlanned / totalPlannedCompleted : 1;
+    // Calculate BEI: (Tasks with matching completion status) / (Total comparable tasks)
+    const bei = totalComparableTasks > 0 ? tasksWithMatchingStatus / totalComparableTasks : 1;
     
     return {
       value: bei.toFixed(2),
       threshold: '0.95',
       status: bei >= 0.95 ? 'pass' : bei >= 0.85 ? 'warning' : 'fail',
-      description: `Baseline Execution Index (BEI) - ${tasksCompletedAsPlanned} of ${totalPlannedCompleted} planned tasks completed`
+      description: `Baseline Execution Index (BEI) - ${tasksWithMatchingStatus} of ${totalComparableTasks} tasks have matching completion status`
     };
   }
 
