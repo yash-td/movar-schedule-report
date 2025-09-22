@@ -16,7 +16,8 @@ export default defineConfig({
     // Add watch options to optimize file watching
     watch: {
       usePolling: true,
-      interval: 500
+      interval: 500,
+      ignored: ['**/.env']
     }
   },
   optimizeDeps: {
