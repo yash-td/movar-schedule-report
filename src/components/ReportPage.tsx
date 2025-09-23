@@ -59,10 +59,17 @@ type DashboardView = 'overview' | 'analysis' | 'register';
   } | null>(null);
 
   const getTaskStatus = (task: any) => {
-    const status = (task.status || task.status_code || '').toLowerCase();
-    if (status.includes('complete')) return 'Completed';
-    if (status.includes('progress') || status.includes('started')) return 'In Progress';
-    return 'Not Started';
+    // Use actual start/end dates for more factual status determination
+    const hasActualStart = task.act_start_date && task.act_start_date.trim() !== '';
+    const hasActualEnd = task.act_end_date && task.act_end_date.trim() !== '';
+
+    if (hasActualEnd) {
+      return 'Completed';
+    } else if (hasActualStart) {
+      return 'In Progress';
+    } else {
+      return 'Not Started';
+    }
   };
 
   const filteredTableData = useMemo(() => {
