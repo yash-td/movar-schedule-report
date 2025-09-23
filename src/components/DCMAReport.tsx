@@ -49,16 +49,20 @@ export function DCMAReport({ metrics, projectName, timestamp, totalTasks }: DCMA
   const formatValue = (value: number | string | Record<string, number>, metricKey: string) => {
     if (typeof value === 'number') {
       // For metrics that should show both count and percentage
-      if (['missingLogic', 'highFloat', 'highDuration', 'criticalPath'].includes(metricKey)) {
+      if (['missingLogic', 'highFloat', 'highDuration', 'criticalPath', 'hardConstraints', 'negativeFloat', 'leads', 'lags', 'resourceLoading', 'missedTasks'].includes(metricKey)) {
         const percentage = ((value / totalTasks) * 100).toFixed(1);
         return `${value} (${percentage}%)`;
+      }
+      // For indices like CPLI and BEI
+      if (['criticalPathIndex', 'baselineExecutionIndex'].includes(metricKey)) {
+        return value.toFixed(3);
       }
       return value.toFixed(2);
     }
     if (typeof value === 'object' && value !== null) {
-      // For link types, show percentages
+      // For relationship types, show percentages
       return Object.entries(value)
-        .map(([key, val]) => `${key.toUpperCase()}: ${val}%`)
+        .map(([key, val]) => `${key}: ${val}%`)
         .join(', ');
     }
     return value;
@@ -109,7 +113,7 @@ export function DCMAReport({ metrics, projectName, timestamp, totalTasks }: DCMA
               <div className="flex items-center gap-3">
                 {getStatusIcon(metric.status)}
                 <span className="text-white font-medium">
-                  {key.replace(/([A-Z])/g, ' $1').trim()}
+                  {key.replace(/([A-Z])/g, ' $1').trim().replace(/^./, str => str.toUpperCase())}
                 </span>
               </div>
               <div className="flex items-center gap-4">
@@ -125,8 +129,22 @@ export function DCMAReport({ metrics, projectName, timestamp, totalTasks }: DCMA
               </div>
             </button>
             {expandedMetrics.includes(key) && (
-              <div className="mt-4 pl-8 text-white/70 text-sm">
-                {metric.description}
+              <div className="mt-4 pl-8 space-y-3">
+                <div className="text-white/80 text-sm leading-relaxed">
+                  {metric.description}
+                </div>
+                {(metric as any).details && (
+                  <div className="text-white/60 text-xs p-3 bg-white/5 rounded-lg border border-white/10">
+                    <span className="font-medium text-white/70">Details: </span>
+                    {(metric as any).details}
+                  </div>
+                )}
+                {(metric as any).recommendation && (
+                  <div className="text-blue-200 text-xs p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                    <span className="font-medium text-blue-100">Recommendation: </span>
+                    {(metric as any).recommendation}
+                  </div>
+                )}
               </div>
             )}
           </div>

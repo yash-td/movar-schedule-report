@@ -25,9 +25,7 @@ export default defineConfig({
     include: [
       'react',
       'react-dom',
-      'react-router-dom',
-      'lucide-react',
-      '@supabase/supabase-js'
+      'lucide-react'
     ]
   }
 });

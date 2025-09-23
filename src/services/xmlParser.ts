@@ -27,6 +27,15 @@ interface XMLResource {
   Units: string;
 }
 
+interface ProjectInfo {
+  projectId?: string;
+  name?: string;
+  planStartDate?: string;
+  planFinishDate?: string;
+  forecastFinishDate?: string;
+  dataDate?: string;
+}
+
 export async function parseXMLFile(file: File, onProgress?: (progress: number) => void): Promise<any> {
   const text = await file.text();
   const parser = new DOMParser();
@@ -74,6 +83,8 @@ export async function parseXMLFile(file: File, onProgress?: (progress: number) =
   const minStartDate = new Date(Math.min(...startDates.map(d => d.getTime())));
   const maxEndDate = new Date(Math.max(...endDates.map(d => d.getTime())));
 
+  const projectInfo = extractProjectInfo(xmlDoc);
+
   // Create chart data
   const chartData = {
     timeline: processTimelineData(activities),
@@ -81,14 +92,38 @@ export async function parseXMLFile(file: File, onProgress?: (progress: number) =
     taskTypes: processTaskTypeData(activities)
   };
 
+  onProgress?.(100);
+
   return {
     chartData,
     tableData: activities,
     projectDates: {
       minStartDate: minStartDate.toISOString().split('T')[0],
       maxEndDate: maxEndDate.toISOString().split('T')[0]
-    }
+    },
+    projectInfo
   };
+}
+
+function extractProjectInfo(doc: Document): ProjectInfo | undefined {
+  const projectNodes = doc.getElementsByTagName('Project');
+  if (!projectNodes?.length) {
+    return undefined;
+  }
+
+  const projectNode = projectNodes[0];
+  const read = (tag: string) => getElementText(projectNode as Element, tag);
+
+  const info: ProjectInfo = {
+    projectId: read('ObjectId') || read('Id') || undefined,
+    name: read('Name') || undefined,
+    planStartDate: read('PlannedStartDate') || read('PlanStartDate') || undefined,
+    planFinishDate: read('PlannedFinishDate') || read('PlanFinishDate') || undefined,
+    forecastFinishDate: read('ScheduledFinishDate') || read('ForecastFinishDate') || undefined,
+    dataDate: read('DataDate') || read('StatusDate') || undefined,
+  };
+
+  return info;
 }
 
 function parseActivities(doc: Document): XMLTask[] {

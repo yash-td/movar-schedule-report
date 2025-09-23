@@ -1,26 +1,87 @@
-import Papa from 'papaparse';
-
 interface Task {
   task_id: string;
   task_name: string;
   task_code: string;
+  // Planned dates
   target_start_date: string;
   target_end_date: string;
   target_drtn_hr_cnt: string;
+  // Actual dates
+  act_start_date?: string;
+  act_end_date?: string;
+  // Float values
   total_float_hr_cnt: string;
   free_float_hr_cnt: string;
+  // Critical path
   driving_path_flag: string;
-  status: string;
+  // Status and type
+  status_code?: string;
+  status?: string;
   task_type: string;
-  resources?: any[];
-  relationships?: any[];
+  // Constraints
+  cstr_type?: string;
+  cstr_type2?: string;
+  cstr_date?: string;
+  cstr_date2?: string;
+  // Early/Late dates
+  early_start_date?: string;
+  early_end_date?: string;
+  late_start_date?: string;
+  late_end_date?: string;
+  // Remaining values
+  remain_drtn_hr_cnt?: string;
+  restart_date?: string;
+  reend_date?: string;
+  // Work quantities
+  target_work_qty?: string;
+  act_work_qty?: string;
+  remain_work_qty?: string;
+  // Percent complete
+  phys_complete_pct?: string;
+  complete_pct_type?: string;
+  // Expected dates
+  expect_end_date?: string;
+  // Duration type
+  duration_type?: string;
+  // Calendar
+  clndr_id?: string;
+  // WBS
+  wbs_id: string;
+  // Project
+  proj_id: string;
+  // Relationships and resources
+  relationships?: TaskRelationship[];
+  resources?: TaskResource[];
 }
 
-interface TaskPred {
-  task_id: string;
+interface TaskRelationship {
   pred_task_id: string;
+  task_id: string;
   pred_type: string;
-  lag_hr_cnt: number;
+  lag_hr_cnt: string;
+  comments?: string;
+}
+
+interface TaskResource {
+  task_id: string;
+  rsrc_id: string;
+  target_qty: string;
+  remain_qty: string;
+  act_reg_qty?: string;
+  cost_per_qty?: string;
+  target_cost?: string;
+  remain_cost?: string;
+  act_reg_cost?: string;
+}
+
+interface ProjectInfo {
+  projectId?: string;
+  shortName?: string;
+  planStartDate?: string;
+  planFinishDate?: string;
+  forecastFinishDate?: string;
+  dataDate?: string;
+  baselineProjectId?: string;
 }
 
 interface ParsedData {
@@ -30,6 +91,7 @@ interface ParsedData {
     minStartDate: string;
     maxEndDate: string;
   };
+  projectInfo?: ProjectInfo;
 }
 
 export async function parseXERFile(file: File, onProgress?: (progress: number) => void, isBaseline: boolean = false): Promise<ParsedData> {
@@ -59,36 +121,67 @@ export async function parseXERFile(file: File, onProgress?: (progress: number) =
   }
 
   // Extract relationships from TASKPRED table
-  const relationships = new Map<string, any[]>();
+  const relationships = new Map<string, TaskRelationship[]>();
   const taskPreds = tables['TASKPRED'] || [];
-  
+
   taskPreds.forEach(pred => {
-    const rel = {
-      predecessor_id: pred.pred_task_id,
+    const rel: TaskRelationship = {
+      pred_task_id: pred.pred_task_id,
+      task_id: pred.task_id,
       pred_type: pred.pred_type || 'PR_FS',
-      lag_hr_cnt: parseInt(pred.lag_hr_cnt || '0')
+      lag_hr_cnt: pred.lag_hr_cnt || '0',
+      comments: pred.comments
     };
-    
+
     if (!relationships.has(pred.task_id)) {
       relationships.set(pred.task_id, []);
     }
     relationships.get(pred.task_id)!.push(rel);
   });
 
-  // Process tasks with relationships
+  // Extract resources from TASKRSRC table
+  const resources = new Map<string, TaskResource[]>();
+  const taskResources = tables['TASKRSRC'] || [];
+
+  taskResources.forEach(rsrc => {
+    const resource: TaskResource = {
+      task_id: rsrc.task_id,
+      rsrc_id: rsrc.rsrc_id,
+      target_qty: rsrc.target_qty || '0',
+      remain_qty: rsrc.remain_qty || '0',
+      act_reg_qty: rsrc.act_reg_qty,
+      cost_per_qty: rsrc.cost_per_qty,
+      target_cost: rsrc.target_cost,
+      remain_cost: rsrc.remain_cost,
+      act_reg_cost: rsrc.act_reg_cost
+    };
+
+    if (!resources.has(rsrc.task_id)) {
+      resources.set(rsrc.task_id, []);
+    }
+    resources.get(rsrc.task_id)!.push(resource);
+  });
+
+  // Process tasks with relationships and resources
   const processedTasks = (tables['TASK'] || []).map(task => ({
     ...task,
     relationships: relationships.get(task.task_id) || [],
-    resources: (tables['TASKRSRC'] || [])
-      .filter(r => r.task_id === task.task_id)
+    resources: resources.get(task.task_id) || []
   }));
 
   // Get project date range
-  const startDates = processedTasks.map(task => new Date(task.target_start_date));
-  const endDates = processedTasks.map(task => new Date(task.target_end_date));
-  
-  const minStartDate = new Date(Math.min(...startDates.map(d => d.getTime())));
-  const maxEndDate = new Date(Math.max(...endDates.map(d => d.getTime())));
+  const startTimestamps = processedTasks
+    .map(task => new Date(task.target_start_date).getTime())
+    .filter(time => Number.isFinite(time));
+  const endTimestamps = processedTasks
+    .map(task => new Date(task.target_end_date).getTime())
+    .filter(time => Number.isFinite(time));
+
+  const fallbackTimestamp = Date.now();
+  const minStartDate = new Date(startTimestamps.length ? Math.min(...startTimestamps) : fallbackTimestamp);
+  const maxEndDate = new Date(endTimestamps.length ? Math.max(...endTimestamps) : fallbackTimestamp);
+
+  const projectInfo = buildProjectInfo(tables['PROJECT']?.[0]);
 
   // Process chart data
   const chartData = {
@@ -105,11 +198,37 @@ export async function parseXERFile(file: File, onProgress?: (progress: number) =
     projectDates: {
       minStartDate: minStartDate.toISOString().split('T')[0],
       maxEndDate: maxEndDate.toISOString().split('T')[0]
-    }
+    },
+    projectInfo
   };
 }
 
+function buildProjectInfo(projectRow?: Record<string, string>): ProjectInfo | undefined {
+  if (!projectRow) {
+    return undefined;
+  }
+
+  const info: ProjectInfo = {
+    projectId: projectRow.proj_id || undefined,
+    shortName: projectRow.proj_short_name || undefined,
+    planStartDate: projectRow.plan_start_date || undefined,
+    planFinishDate: projectRow.plan_end_date || undefined,
+    forecastFinishDate: projectRow.scd_end_date || undefined,
+    dataDate: projectRow.last_schedule_date || projectRow.next_data_date || projectRow.last_recalc_date || undefined,
+    baselineProjectId: projectRow.sum_base_proj_id || undefined,
+  };
+
+  return info;
+}
+
 function processTimelineData(data: Task[], isBaseline: boolean) {
+  if (data.length === 0) {
+    return {
+      labels: [],
+      datasets: []
+    };
+  }
+
   const sortedData = [...data].sort((a, b) => 
     new Date(a.target_end_date).getTime() - new Date(b.target_end_date).getTime()
   );
@@ -179,14 +298,26 @@ function processTimelineData(data: Task[], isBaseline: boolean) {
 }
 
 function processProgressData(data: Task[]) {
-  const startDates = data.map(task => new Date(task.target_start_date));
-  const endDates = data.map(task => new Date(task.target_end_date));
-  
-  const minStartDate = new Date(Math.min(...startDates.map(d => d.getTime())));
-  const maxEndDate = new Date(Math.max(...endDates.map(d => d.getTime())));
-  
-  const dataDate = new Date(Math.min(new Date().getTime(), maxEndDate.getTime()));
-  
+  if (data.length === 0) {
+    return {
+      labels: ['Not Started', 'In Progress', 'Completed'],
+      datasets: [{
+        data: [0, 0, 0],
+        backgroundColor: [
+          'rgba(255, 159, 67, 0.8)',
+          'rgba(17, 141, 255, 0.8)',
+          'rgba(46, 213, 115, 0.8)'
+        ]
+      }]
+    };
+  }
+
+  const endTimestamps = data
+    .map(task => new Date(task.target_end_date).getTime())
+    .filter(time => Number.isFinite(time));
+  const latestEnd = endTimestamps.length ? Math.max(...endTimestamps) : Date.now();
+  const dataDate = new Date(Math.min(Date.now(), latestEnd));
+
   const statusCategories = {
     'Not Started': data.filter(task => new Date(task.target_start_date) > dataDate).length,
     'In Progress': data.filter(task => {
@@ -196,7 +327,7 @@ function processProgressData(data: Task[]) {
     }).length,
     'Completed': data.filter(task => new Date(task.target_end_date) < dataDate).length
   };
-  
+
   return {
     labels: Object.keys(statusCategories),
     datasets: [{

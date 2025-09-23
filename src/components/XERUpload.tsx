@@ -16,6 +16,7 @@ export function XERUpload({ onDataProcessed, isBaseline = false, label }: XERUpl
   const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -115,6 +116,7 @@ export function XERUpload({ onDataProcessed, isBaseline = false, label }: XERUpl
           onChange={handleFileSelect}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           disabled={isProcessing}
+          ref={fileInputRef}
         />
         
         <div className="text-center">
@@ -169,7 +171,7 @@ export function XERUpload({ onDataProcessed, isBaseline = false, label }: XERUpl
                   ? 'bg-secondary/10 hover:bg-secondary/20 text-secondary'
                   : 'bg-primary/10 hover:bg-primary/20 text-primary'
               } px-4 py-2 rounded-full flex items-center gap-2 transition-all duration-300`}
-              onClick={() => document.querySelector('input[type="file"]')?.click()}
+              onClick={() => fileInputRef.current?.click()}
               disabled={isProcessing}
             >
               <FileUp className="w-4 h-4" />
