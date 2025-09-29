@@ -31,6 +31,19 @@ interface TaskDifference {
   }[];
 }
 
+interface LookAheadActivity {
+  task_code: string;
+  task_name: string;
+  target_start_date: string;
+  target_end_date: string;
+  baseline_start_date?: string;
+  baseline_end_date?: string;
+  start_variance_days?: number;
+  end_variance_days?: number;
+  driving_path_flag: string;
+  task_type: string;
+}
+
 const MOVAR_LOGO_URL = '/movar-logo.png';
 
 type DashboardView = 'overview' | 'analysis' | 'register';
@@ -56,6 +69,18 @@ type DashboardView = 'overview' | 'analysis' | 'register';
     activityCountDifference: number;
     totalDelayDays: number;
     criticalPathDelayDays: number;
+  } | null>(null);
+  const [lookAheadData, setLookAheadData] = useState<{
+    currentActivities: LookAheadActivity[];
+    baselineActivities: LookAheadActivity[];
+    summary: {
+      totalActivitiesStarting: number;
+      totalActivitiesEnding: number;
+      criticalActivitiesStarting: number;
+      criticalActivitiesEnding: number;
+      averageStartVariance: number;
+      averageEndVariance: number;
+    };
   } | null>(null);
 
   const getTaskStatus = (task: any) => {
@@ -202,9 +227,17 @@ Please format the response maintaining the markdown structure, but replace the b
     if (baselineData) {
       compareWithBaseline(data.tableData, baselineData.tableData);
       variance = calculateVarianceAnalysis(data.tableData, baselineData.tableData);
+
+      // Calculate 4-week look ahead with baseline comparison
+      const lookAhead = calculateFourWeekLookAhead(data.tableData, baselineData.tableData);
+      setLookAheadData(lookAhead);
     } else {
       // Reset variance analysis if no baseline
       setVarianceAnalysis(null);
+
+      // Calculate 4-week look ahead without baseline
+      const lookAhead = calculateFourWeekLookAhead(data.tableData);
+      setLookAheadData(lookAhead);
     }
 
     await generateProjectNarrative(data, narrativePrompt, variance);
@@ -233,8 +266,113 @@ Please format the response maintaining the markdown structure, but replace the b
       compareWithBaseline(xerData.tableData, data.tableData);
       const variance = calculateVarianceAnalysis(xerData.tableData, data.tableData);
 
+      // Calculate 4-week look ahead with baseline comparison
+      const lookAhead = calculateFourWeekLookAhead(xerData.tableData, data.tableData);
+      setLookAheadData(lookAhead);
+
       await generateProjectNarrative(xerData, narrativePrompt, variance);
     }
+  };
+
+  const calculateFourWeekLookAhead = (currentData: any[], baselineData?: any[]) => {
+    const now = new Date();
+    const fourWeeksFromNow = new Date(now.getTime() + (28 * 24 * 60 * 60 * 1000));
+
+    // Get activities starting or ending in the next 4 weeks
+    const currentActivities: LookAheadActivity[] = currentData
+      .filter(task => {
+        const startDate = new Date(task.target_start_date);
+        const endDate = new Date(task.target_end_date);
+        return (startDate >= now && startDate <= fourWeeksFromNow) ||
+               (endDate >= now && endDate <= fourWeeksFromNow);
+      })
+      .map(task => {
+        const activity: LookAheadActivity = {
+          task_code: task.task_code,
+          task_name: task.task_name,
+          target_start_date: task.target_start_date,
+          target_end_date: task.target_end_date,
+          driving_path_flag: task.driving_path_flag,
+          task_type: task.task_type
+        };
+
+        // Add baseline comparison if available
+        if (baselineData) {
+          const baselineTask = baselineData.find(bt => bt.task_code === task.task_code);
+          if (baselineTask) {
+            activity.baseline_start_date = baselineTask.target_start_date;
+            activity.baseline_end_date = baselineTask.target_end_date;
+
+            const currentStart = new Date(task.target_start_date);
+            const baselineStart = new Date(baselineTask.target_start_date);
+            const currentEnd = new Date(task.target_end_date);
+            const baselineEnd = new Date(baselineTask.target_end_date);
+
+            activity.start_variance_days = Math.round((currentStart.getTime() - baselineStart.getTime()) / (1000 * 60 * 60 * 24));
+            activity.end_variance_days = Math.round((currentEnd.getTime() - baselineEnd.getTime()) / (1000 * 60 * 60 * 24));
+          }
+        }
+
+        return activity;
+      });
+
+    // Get baseline activities for comparison (if baseline exists)
+    const baselineActivities: LookAheadActivity[] = baselineData
+      ? baselineData
+          .filter(task => {
+            const startDate = new Date(task.target_start_date);
+            const endDate = new Date(task.target_end_date);
+            return (startDate >= now && startDate <= fourWeeksFromNow) ||
+                   (endDate >= now && endDate <= fourWeeksFromNow);
+          })
+          .map(task => ({
+            task_code: task.task_code,
+            task_name: task.task_name,
+            target_start_date: task.target_start_date,
+            target_end_date: task.target_end_date,
+            driving_path_flag: task.driving_path_flag,
+            task_type: task.task_type
+          }))
+      : [];
+
+    // Calculate summary statistics
+    const activitiesStarting = currentActivities.filter(a => {
+      const startDate = new Date(a.target_start_date);
+      return startDate >= now && startDate <= fourWeeksFromNow;
+    });
+
+    const activitiesEnding = currentActivities.filter(a => {
+      const endDate = new Date(a.target_end_date);
+      return endDate >= now && endDate <= fourWeeksFromNow;
+    });
+
+    const criticalActivitiesStarting = activitiesStarting.filter(a => a.driving_path_flag === 'Y').length;
+    const criticalActivitiesEnding = activitiesEnding.filter(a => a.driving_path_flag === 'Y').length;
+
+    // Calculate average variances (only for activities with baseline data)
+    const activitiesWithStartVariance = currentActivities.filter(a => a.start_variance_days !== undefined);
+    const activitiesWithEndVariance = currentActivities.filter(a => a.end_variance_days !== undefined);
+
+    const averageStartVariance = activitiesWithStartVariance.length > 0
+      ? Math.round(activitiesWithStartVariance.reduce((sum, a) => sum + (a.start_variance_days || 0), 0) / activitiesWithStartVariance.length)
+      : 0;
+
+    const averageEndVariance = activitiesWithEndVariance.length > 0
+      ? Math.round(activitiesWithEndVariance.reduce((sum, a) => sum + (a.end_variance_days || 0), 0) / activitiesWithEndVariance.length)
+      : 0;
+
+    return {
+      currentActivities,
+      baselineActivities,
+      summary: {
+        totalActivitiesStarting: activitiesStarting.length,
+        totalActivitiesEnding: activitiesEnding.length,
+        criticalActivitiesStarting,
+        criticalActivitiesEnding,
+        averageStartVariance,
+        averageEndVariance
+      }
+    };
   };
 
   const calculateVarianceAnalysis = (currentData: any[], baselineData: any[]) => {
@@ -397,6 +535,7 @@ Please format the response maintaining the markdown structure, but replace the b
   const chartsRef = useRef<HTMLDivElement>(null);
   const dcmaRef = useRef<HTMLDivElement>(null);
   const comparisonRef = useRef<HTMLDivElement>(null);
+  const lookAheadRef = useRef<HTMLDivElement>(null);
   const activityRegisterRef = useRef<HTMLDivElement>(null);
 
   const summaryStats = useMemo(() => {
@@ -873,6 +1012,129 @@ Please format the response maintaining the markdown structure, but replace the b
 
           {activeView === 'analysis' && (
             <section className="space-y-6">
+              {lookAheadData && (
+                <div ref={lookAheadRef} className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <ClipboardList className="w-5 h-5 text-primary" />
+                      <h2 className="text-xl font-semibold text-white">4-Week Look Ahead</h2>
+                    </div>
+                    <button
+                      onClick={() => handleDownloadSectionPDF(lookAheadRef, '4-week-look-ahead')}
+                      className="no-print flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors border bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
+                      title="Download 4-Week Look Ahead as PDF"
+                    >
+                      <Download className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+                    <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+                      <p className="text-sm text-emerald-200/80">Activities Starting</p>
+                      <p className="mt-2 text-3xl font-semibold text-emerald-300">{lookAheadData.summary.totalActivitiesStarting}</p>
+                      <p className="text-xs text-emerald-200/70 mt-1">Next 4 weeks</p>
+                    </div>
+                    <div className="rounded-2xl border border-sky-400/30 bg-sky-500/10 p-4">
+                      <p className="text-sm text-sky-200/80">Activities Ending</p>
+                      <p className="mt-2 text-3xl font-semibold text-sky-300">{lookAheadData.summary.totalActivitiesEnding}</p>
+                      <p className="text-xs text-sky-200/70 mt-1">Next 4 weeks</p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
+                      <p className="text-sm text-amber-200/80">Critical Starting</p>
+                      <p className="mt-2 text-3xl font-semibold text-amber-300">{lookAheadData.summary.criticalActivitiesStarting}</p>
+                      <p className="text-xs text-amber-200/70 mt-1">Critical path activities</p>
+                    </div>
+                    <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4">
+                      <p className="text-sm text-rose-200/80">Critical Ending</p>
+                      <p className="mt-2 text-3xl font-semibold text-rose-300">{lookAheadData.summary.criticalActivitiesEnding}</p>
+                      <p className="text-xs text-rose-200/70 mt-1">Critical path activities</p>
+                    </div>
+                  </div>
+
+                  {baselineData && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div className="rounded-2xl border border-purple-400/30 bg-purple-500/10 p-4">
+                        <p className="text-sm text-purple-200/80">Avg Start Variance</p>
+                        <p className="mt-2 text-3xl font-semibold text-purple-300">
+                          {lookAheadData.summary.averageStartVariance > 0 ? '+' : ''}{lookAheadData.summary.averageStartVariance}
+                        </p>
+                        <p className="text-xs text-purple-200/70 mt-1">Days vs baseline</p>
+                      </div>
+                      <div className="rounded-2xl border border-indigo-400/30 bg-indigo-500/10 p-4">
+                        <p className="text-sm text-indigo-200/80">Avg End Variance</p>
+                        <p className="mt-2 text-3xl font-semibold text-indigo-300">
+                          {lookAheadData.summary.averageEndVariance > 0 ? '+' : ''}{lookAheadData.summary.averageEndVariance}
+                        </p>
+                        <p className="text-xs text-indigo-200/70 mt-1">Days vs baseline</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-white">Upcoming Activities</h3>
+                    {lookAheadData.currentActivities.slice(0, 10).map((activity, index) => (
+                      <div key={`${activity.task_code}-${index}`} className="rounded-xl border border-white/10 bg-slate-900/40 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-medium text-white">{activity.task_code}</span>
+                              {activity.driving_path_flag === 'Y' && (
+                                <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-rose-500/15 text-rose-300">
+                                  Critical
+                                </span>
+                              )}
+                              <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-white/10 text-white/60">
+                                {activity.task_type}
+                              </span>
+                            </div>
+                            <p className="text-white/80 text-sm mb-3">{activity.task_name}</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <span className="text-white/60">Start: </span>
+                                <span className="text-white/90">{new Date(activity.target_start_date).toLocaleDateString()}</span>
+                                {activity.baseline_start_date && (
+                                  <>
+                                    <span className="text-white/60"> (vs baseline: </span>
+                                    <span className="text-white/70">{new Date(activity.baseline_start_date).toLocaleDateString()}</span>
+                                    {activity.start_variance_days !== undefined && (
+                                      <span className={`ml-1 ${activity.start_variance_days > 0 ? 'text-rose-300' : activity.start_variance_days < 0 ? 'text-emerald-300' : 'text-white/60'}`}>
+                                        {activity.start_variance_days > 0 ? '+' : ''}{activity.start_variance_days}d
+                                      </span>
+                                    )}
+                                    <span className="text-white/60">)</span>
+                                  </>
+                                )}
+                              </div>
+                              <div>
+                                <span className="text-white/60">End: </span>
+                                <span className="text-white/90">{new Date(activity.target_end_date).toLocaleDateString()}</span>
+                                {activity.baseline_end_date && (
+                                  <>
+                                    <span className="text-white/60"> (vs baseline: </span>
+                                    <span className="text-white/70">{new Date(activity.baseline_end_date).toLocaleDateString()}</span>
+                                    {activity.end_variance_days !== undefined && (
+                                      <span className={`ml-1 ${activity.end_variance_days > 0 ? 'text-rose-300' : activity.end_variance_days < 0 ? 'text-emerald-300' : 'text-white/60'}`}>
+                                        {activity.end_variance_days > 0 ? '+' : ''}{activity.end_variance_days}d
+                                      </span>
+                                    )}
+                                    <span className="text-white/60">)</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {lookAheadData.currentActivities.length > 10 && (
+                      <p className="text-center text-sm text-white/50">
+                        Showing the first 10 of {lookAheadData.currentActivities.length} activities in the 4-week window.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div ref={comparisonRef} className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
                   <div className="flex items-center gap-3">
