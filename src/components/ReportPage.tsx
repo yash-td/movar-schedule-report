@@ -532,7 +532,6 @@ Please format the response maintaining the markdown structure, but replace the b
   const metricsRef = useRef<HTMLDivElement>(null);
   const sCurveRef = useRef<HTMLDivElement>(null);
   const narrativeRef = useRef<HTMLDivElement>(null);
-  const chartsRef = useRef<HTMLDivElement>(null);
   const dcmaRef = useRef<HTMLDivElement>(null);
   const comparisonRef = useRef<HTMLDivElement>(null);
   const lookAheadRef = useRef<HTMLDivElement>(null);
@@ -990,22 +989,6 @@ Please format the response maintaining the markdown structure, but replace the b
                     </div>
                   </div>
                 </div>
-              </section>
-
-              <section ref={chartsRef} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="relative">
-                  <ProjectChart type="pie" data={hasScheduleData ? xerData.chartData.progress : constructionProjectData.budget} title={hasScheduleData ? 'Status Distribution' : 'Sample Budget Allocation'} />
-                  {hasScheduleData && (
-                    <button
-                      onClick={() => handleDownloadSectionPDF(chartsRef, 'charts')}
-                      className="no-print absolute top-4 right-4 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors border bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
-                      title="Download Charts as PDF"
-                    >
-                      <Download className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-                <ProjectChart type={hasScheduleData ? 'pie' : 'bar'} data={hasScheduleData ? xerData.chartData.taskTypes : constructionProjectData.resources} title={hasScheduleData ? 'Task Type Mix' : 'Sample Resource Allocation'} />
               </section>
             </>
           )}
